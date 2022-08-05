@@ -1,70 +1,70 @@
 package ru.zar1official.moviesapp.presentation.activities
 
 import android.os.Bundle
-import android.view.View
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
-import androidx.recyclerview.widget.DividerItemDecoration
-import androidx.recyclerview.widget.DividerItemDecoration.VERTICAL
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.snackbar.Snackbar
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.items
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
-import ru.zar1official.moviesapp.R
-import ru.zar1official.moviesapp.databinding.ActivityMainBinding
-import ru.zar1official.moviesapp.presentation.adapter.MoviesAdapter
+import ru.zar1official.moviesapp.presentation.components.ErrorItem
+import ru.zar1official.moviesapp.presentation.components.LoadingItem
+import ru.zar1official.moviesapp.presentation.components.LoadingView
+import ru.zar1official.moviesapp.presentation.components.MovieItem
 import ru.zar1official.moviesapp.presentation.viewModels.MainViewModel
-import javax.inject.Inject
 
 @AndroidEntryPoint
-class MainActivity : AppCompatActivity() {
-    private lateinit var binding: ActivityMainBinding
-
-    @Inject
-    lateinit var moviesAdapter: MoviesAdapter
-    private val viewModel: MainViewModel by lazy { ViewModelProvider(this).get(MainViewModel::class.java) }
+class MainActivity : ComponentActivity() {
+    private val viewModel by viewModels<MainViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater).apply {
-            setupRecyclerView()
-        }.also { setContentView(it.root) }
-
-        viewModel.movies.observe(this) {
-            lifecycleScope.launch {
-                moviesAdapter.submitData(lifecycle, it)
-            }
-        }
-
-        lifecycleScope.launch {
-            moviesAdapter.loadStateFlow.collectLatest {
-                if (it.refresh is LoadState.NotLoading) {
-                    binding.initialLoading.visibility = View.GONE
+        setContent {
+            val movies = viewModel.movies.collectAsLazyPagingItems()
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(movies) { movie ->
+                    movie?.let { MovieItem(it, this@MainActivity) }
                 }
-                if (it.refresh is LoadState.Error || it.prepend is LoadState.Error || it.append is LoadState.Error) {
-                    Snackbar.make(
-                        this@MainActivity,
-                        binding.root,
-                        getString(R.string.network_error),
-                        Snackbar.LENGTH_INDEFINITE
-                    )
-                        .setAction(R.string.action_try_again) {
-                            moviesAdapter.retry()
-                        }.show()
+
+                movies.apply {
+                    when {
+                        loadState.refresh is LoadState.Loading -> {
+                            item { LoadingView(modifier = Modifier.fillParentMaxSize()) }
+                        }
+                        loadState.append is LoadState.Loading -> {
+                            item { LoadingItem() }
+                        }
+                        loadState.refresh is LoadState.Error -> {
+                            val e = movies.loadState.refresh as LoadState.Error
+                            item {
+                                ErrorItem(
+                                    message = e.error.localizedMessage!!,
+                                    modifier = Modifier.fillParentMaxSize(),
+                                    onClickRetry = { retry() }
+                                )
+                            }
+                        }
+                        loadState.append is LoadState.Error -> {
+                            val e = movies.loadState.append as LoadState.Error
+                            item {
+                                ErrorItem(
+                                    message = e.error.localizedMessage!!,
+                                    onClickRetry = { retry() }
+                                )
+                            }
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    private fun ActivityMainBinding.setupRecyclerView() {
-        this.moviesRecyclerView.apply {
-            adapter = moviesAdapter
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            addItemDecoration(DividerItemDecoration(this@MainActivity, VERTICAL))
-            setHasFixedSize(true)
         }
     }
 }
